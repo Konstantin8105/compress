@@ -9,8 +9,6 @@ import (
 	"strings"
 )
 
-const chanSize = 10
-
 func main() {
 	var (
 		ffmpegLocation  = "C:\\Users\\e19700019\\Downloads\\ffmpeg\\bin\\ffmpeg.exe"
@@ -33,15 +31,16 @@ func main() {
 		".ppt", ".epub", ".ax",
 		".xml", ".odt", ".wma",
 		".fb2", ".ods", "bbs",
+		".vob",
 	}
 	video := []string{
 		".mp4", ".avi", ".mkv",
-		".mpg", ".vob", ".divx",
+		".mpg", ".divx",
 		".mts", ".wmv",
 	}
 
 	// get video files
-	input := make(chan string, chanSize)
+	input := make(chan string)
 	go func() {
 		for _, folder := range folders {
 			err := filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
@@ -81,44 +80,42 @@ func main() {
 	}()
 
 	// filter of video size
-	filter := make(chan string, chanSize*10)
+	filter := make(chan string)
 	go func() {
 		for file := range input {
 			// ffprobe -v error -show_entries stream=width,height -of default=noprint_wrappers=1 input.mp4
 			cmd := exec.Command(ffprobeLocation,
 				"-v", "error",
-				"-show_entries", "stream=width,height",
+				"-show_entries", "stream=width", // ONLY WIDTH
 				"-of", "default=noprint_wrappers=1",
 				file,
 			)
-			stdout, err := cmd.Output()
+			out, err := cmd.Output()
 			if err != nil {
 				panic(err)
 			}
 			// parse result
 			// width=1280
 			// height=720
-			lines := strings.Split(string(stdout), "\n")
-			var height, width int
-			for _, line := range lines {
-				if !strings.Contains(line, "width") {
-					continue
-				}
-				index := strings.Index(line, "=")
-				if index < 0 {
-					continue
-				}
-				width, err := strconv.Atoi(strings.TrimSpace(line[index+1:]))
-				if err != nil {
-					panic(err)
-				}
-				if maxWidth < width {
-					filter <- file
-					fmt.Printf("add    (%05d): %s\n", width, file)
-					break
-				} else {
-					fmt.Printf("ignore (%05d): %s\n", width, file)
-				}
+
+			line := strings.TrimSpace(string(out))
+
+			if !strings.Contains(line, "width") {
+				panic(fmt.Errorf("have not width: `%s`", string(out)))
+			}
+			index := strings.Index(line, "=")
+			if index < 0 {
+				continue
+			}
+			width, err := strconv.Atoi(strings.TrimSpace(line[index+1:]))
+			if err != nil {
+				panic(err)
+			}
+			if maxWidth < width {
+				fmt.Printf("add    (%05d): %s\n", width, file)
+				filter <- file
+			} else {
+				fmt.Printf("ignore (%05d): %s\n", width, file)
 			}
 		}
 		close(filter)
