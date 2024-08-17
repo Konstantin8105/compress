@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -303,19 +304,17 @@ func action(f string) (err error) {
 	}
 
 	// copy to cloud
-	fmt.Println("cp    :", filename.cloudCompress)
+	fmt.Println("copy    :", filename.cloudCompress)
 	{
-		cmd := exec.Command("cp",
-			filename.localCompress,
-			filename.cloudCompress,
-		)
-		var out []byte
-		out, err = cmd.Output()
+		var input []byte
+		input, err = ioutil.ReadFile(filename.localCompress)
 		if err != nil {
-			err = fmt.Errorf("E: %v", err)
 			return
 		}
-		fmt.Println(string(out))
+		err = ioutil.WriteFile(filename.cloudCompress, input, 0644)
+		if err != nil {
+			return
+		}
 	}
 
 	// remove original
