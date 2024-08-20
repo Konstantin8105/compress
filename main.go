@@ -78,7 +78,7 @@ func main() {
 	}
 
 	// get video files
-	input := make(chan string, 20)
+	input := make(chan string, 50)
 	go func() {
 		for _, folder := range config.inputFolders {
 			err := filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
@@ -93,7 +93,7 @@ func main() {
 						}
 					}
 					if found {
-						fmt.Printf("[I]")
+						fmt.Printf("1")
 						return nil
 					}
 				}
@@ -105,7 +105,7 @@ func main() {
 						}
 					}
 					if found {
-						fmt.Printf("[I]")
+						fmt.Printf("2")
 						return nil
 					}
 				}
@@ -332,7 +332,7 @@ func action(config Config, f string) (err error) {
 		fmt.Printf("[M]")
 		args := []string{
 			"-i", filename.cloudOriginal, // fmt.Sprintf("'%s'", filename.cloudOriginal),
-			"-vf", fmt.Sprintf("scale=%d:-1", maxWidth),
+			"-vf", fmt.Sprintf("scale=%d:-2", maxWidth), // -2 for divisible by 2
 			filename.localCompress, // fmt.Sprintf("'%s'", filename.localCompress),
 		}
 		cmd := exec.Command(config.ffmpegLocation, args...)
