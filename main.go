@@ -6,23 +6,41 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 )
 
+type Config struct {
+	ffmpegLocation  string
+	ffprobeLocation string
+	copyFolder      string
+
+	inputFolders []string
+}
+
+var windows = Config{
+	ffmpegLocation:  "C:\\Users\\e19700019\\Downloads\\ffmpeg\\bin\\ffmpeg.exe",
+	ffprobeLocation: "C:\\Users\\e19700019\\Downloads\\ffmpeg\\bin\\ffprobe.exe",
+	copyFolder:      "Z:",
+	inputFolders:    []string{"O:\\NLP\\", "O:\\Learning\\"},
+}
+
+var linux = Config{
+	ffmpegLocation:  "ffmpeg",
+	ffprobeLocation: "ffprobe",
+	copyFolder:      "/home/konstantin/temp",
+	inputFolders:    []string{"/cloud/NLP", "/cloud/Learning/"},
+}
+
 const (
-	ffmpegLocation  = "C:\\Users\\e19700019\\Downloads\\ffmpeg\\bin\\ffmpeg.exe"
-	ffprobeLocation = "C:\\Users\\e19700019\\Downloads\\ffmpeg\\bin\\ffprobe.exe"
-	copyFolder      = "Z:"
-	ignoreFile      = "ignore"
-	maxWidth        = 720 // 1024 // Width 1024 x Height 724
+	ignoreFile = "ignore"
+	maxWidth   = 720 // Width 1024 x Height 724
 )
 
-func main() {
-	folders := []string{"O:\\NLP\\", "O:\\Learning\\"}
-	var ignoreList []string
-	ignore := []string{
+var (
+	ignoreExt = [...]string{
 		".doc", ".docx", ".jpg",
 		".txt", ".mp3", ".pdf",
 		".png", ".jpeg", ".odg",
@@ -38,11 +56,20 @@ func main() {
 		".fb2", ".ods", "bbs",
 		".vob",
 	}
-	video := []string{
+	videoExt = [...]string{
 		".mp4", ".avi", ".mkv",
 		".mpg", ".divx",
 		".mts", ".wmv",
 	}
+)
+
+func main() {
+	config := linux
+	if runtime.GOOS == "windows" {
+		config = windows
+	}
+
+	var ignoreList []string
 	dat, err := os.ReadFile(ignoreFile)
 	if err != nil {
 		fmt.Println(">>>>>>>>> cannot read ignore list", err)
@@ -51,9 +78,9 @@ func main() {
 	}
 
 	// get video files
-	input := make(chan string, 20)
+	input := make(chan string, 50)
 	go func() {
-		for _, folder := range folders {
+		for _, folder := range config.inputFolders {
 			err := filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
 				if info.IsDir() {
 					return nil
@@ -66,23 +93,25 @@ func main() {
 						}
 					}
 					if found {
+						fmt.Printf("1")
 						return nil
 					}
 				}
 				{
 					found := false
-					for _, suf := range ignore {
+					for _, suf := range ignoreExt {
 						if strings.HasSuffix(strings.ToLower(path), suf) {
 							found = true
 						}
 					}
 					if found {
+						fmt.Printf("2")
 						return nil
 					}
 				}
 				{
 					found := false
-					for _, suf := range video {
+					for _, suf := range videoExt {
 						if strings.HasSuffix(strings.ToLower(path), suf) {
 							found = true
 						}
@@ -114,7 +143,8 @@ func main() {
 			defer wg.Done()
 			for file := range input {
 				// ffprobe -v error -show_entries stream=width,height -of default=noprint_wrappers=1 input.mp4
-				cmd := exec.Command(ffprobeLocation,
+				fmt.Printf("[P]")
+				cmd := exec.Command(config.ffprobeLocation,
 					"-v", "error",
 					"-show_entries", "stream=width", // ONLY WIDTH
 					"-of", "default=noprint_wrappers=1",
@@ -184,7 +214,7 @@ func main() {
 	// compress
 	var fok []string // file is ok
 	for f := range filter {
-		if err := action(f); err != nil {
+		if err := action(config, f); err != nil {
 			errs = append(errs, fmt.Errorf("%v --- %v", f, err))
 			continue
 		}
@@ -199,7 +229,18 @@ func main() {
 	}
 }
 
-func action(f string) (err error) {
+func copy(src, dst string) (err error) {
+	// Read all content of src to data, may cause OOM for a large file.
+	data, err := ioutil.ReadFile(src)
+	if err != nil {
+		return
+	}
+	// Write data to dst
+	err = ioutil.WriteFile(dst, data, 0644)
+	return
+}
+
+func action(config Config, f string) (err error) {
 	defer func() {
 		if err != nil {
 			fmt.Println("++++++++++++++++++++")
@@ -216,13 +257,13 @@ func action(f string) (err error) {
 	}{}
 	// get filename
 	{
-		index := strings.LastIndex(f, "\\")
+		index := strings.LastIndex(f, string(filepath.Separator))
 		if index < 0 {
 			panic(f)
 		}
 		filename.cloudOriginal = f[:index]
 		filename.cloudCompress = f[:index]
-		filename.localCompress = copyFolder
+		filename.localCompress = config.copyFolder
 
 		name := f[index:]
 		filename.cloudOriginal += name
@@ -288,12 +329,13 @@ func action(f string) (err error) {
 	// ffmpeg.exe -i input.mp4 -vf scale=640:-1 out.mp4
 	fmt.Println("ffmpeg:", filename.cloudCompress)
 	{
+		fmt.Printf("[M]")
 		args := []string{
 			"-i", filename.cloudOriginal, // fmt.Sprintf("'%s'", filename.cloudOriginal),
-			"-vf", fmt.Sprintf("scale=%d:-1", maxWidth),
+			"-vf", fmt.Sprintf("scale=%d:-2", maxWidth), // -2 for divisible by 2
 			filename.localCompress, // fmt.Sprintf("'%s'", filename.localCompress),
 		}
-		cmd := exec.Command(ffmpegLocation, args...)
+		cmd := exec.Command(config.ffmpegLocation, args...)
 		var out []byte
 		out, err = cmd.Output()
 		if err != nil {
@@ -304,17 +346,13 @@ func action(f string) (err error) {
 	}
 
 	// copy to cloud
-	fmt.Println("copy    :", filename.cloudCompress)
-	{
-		var input []byte
-		input, err = ioutil.ReadFile(filename.localCompress)
-		if err != nil {
-			return
-		}
-		err = ioutil.WriteFile(filename.cloudCompress, input, 0644)
-		if err != nil {
-			return
-		}
+	fmt.Println("copy :", filename.cloudCompress)
+	if err = copy(
+		filename.localCompress,
+		filename.cloudCompress,
+	); err != nil {
+		err = fmt.Errorf("E: %v", err)
+		return
 	}
 
 	// remove original
