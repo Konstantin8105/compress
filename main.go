@@ -31,7 +31,11 @@ var linux = Config{
 	ffmpegLocation:  "ffmpeg",
 	ffprobeLocation: "ffprobe",
 	copyFolder:      "/home/konstantin/temp",
-	inputFolders:    []string{"/cloud/NLP", "/cloud/Learning/"},
+	inputFolders: []string{
+		"/cloud/NLP",
+		"/cloud/Learning/",
+		"/media/konstantin/Hdd2/private",
+	},
 }
 
 const (
@@ -60,6 +64,11 @@ var (
 		".mp4", ".avi", ".mkv",
 		".mpg", ".divx",
 		".mts", ".wmv",
+	}
+	audioExt = [...]string{
+		// TODO: implementation
+		// https://trac.ffmpeg.org/wiki/Encode/MP3
+		".mp3", ".flac", ".wav",
 	}
 )
 
@@ -124,7 +133,8 @@ func main() {
 				return nil
 			})
 			if err != nil {
-				panic(err)
+				// ignore error
+				fmt.Fprintf(os.Stderr, "Error in inputFolders: %v", err)
 			}
 		}
 		close(input)
@@ -169,6 +179,9 @@ func main() {
 					line = line[index+1:]
 				}
 				if index := strings.Index(line, "\r"); 0 <= index {
+					line = line[:index]
+				}
+				if index := strings.Index(line, "\n"); 0 <= index {
 					line = line[:index]
 				}
 				width, err := strconv.Atoi(strings.TrimSpace(line))
