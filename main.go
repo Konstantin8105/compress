@@ -35,6 +35,9 @@ var linux = Config{
 		"/cloud/NLP",
 		"/cloud/Learning/",
 		"/media/konstantin/Hdd2/private",
+		"/media/konstantin/Hdd3/music",
+		"/media/konstantin/Hdd3/video",
+		"/media/konstantin/Hdd1/learning",
 	},
 }
 
@@ -46,7 +49,7 @@ const (
 var (
 	ignoreExt = [...]string{
 		".doc", ".docx", ".jpg",
-		".txt", ".mp3", ".pdf",
+		".txt", ".pdf",
 		".png", ".jpeg", ".odg",
 		".djvu", ".rtf", ".html",
 		".htm", ".flv", ".pptx",
@@ -66,8 +69,6 @@ var (
 		".mts", ".wmv",
 	}
 	audioExt = [...]string{
-		// TODO: implementation
-		// https://trac.ffmpeg.org/wiki/Encode/MP3
 		".mp3", ".flac", ".wav",
 	}
 )
@@ -127,6 +128,18 @@ func main() {
 					}
 					if found {
 						input <- path
+						return nil
+					}
+				}
+				{
+					found := false
+					for _, suf := range audioExt {
+						if strings.HasSuffix(strings.ToLower(path), suf) {
+							found = true
+						}
+					}
+					if found {
+						convertAudio(path)
 						return nil
 					}
 				}
@@ -218,6 +231,7 @@ func main() {
 			}
 		}
 	}()
+
 	go func() {
 		wg.Wait()
 		close(filter)
@@ -382,4 +396,17 @@ func action(config Config, f string) (err error) {
 
 	fmt.Println("--- SUCCESS ---", filename.cloudCompress)
 	return
+}
+
+func convertAudio(filename string) {
+	// TODO: implementation
+	// https://trac.ffmpeg.org/wiki/Encode/MP3
+
+	// ffmpeg -i input.flac -ab 320k -map_metadata 0 -id3v2_version 3 output.mp3
+	// ffmpeg -i {        } -ab 160k -map_metadata 0 -id3v2_version 3 {}.mp3
+
+	// ffprobe -loglevel quiet -show_entries format=bit_rate ./01.mp3
+	// [FORMAT]
+	// bit_rate=64035
+	// [/FORMAT]
 }
