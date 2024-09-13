@@ -91,6 +91,12 @@ func main() {
 	input := make(chan string, 50)
 	go func() {
 		for _, folder := range config.inputFolders {
+			if _, err := os.Stat(folder); err != nil {
+				if os.IsNotExist(err) {
+					// file does not exist
+					continue
+				}
+			}
 			err := filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
 				if info.IsDir() {
 					return nil
@@ -131,18 +137,18 @@ func main() {
 						return nil
 					}
 				}
-				{
-					found := false
-					for _, suf := range audioExt {
-						if strings.HasSuffix(strings.ToLower(path), suf) {
-							found = true
-						}
-					}
-					if found {
-						convertAudio(path)
-						return nil
-					}
-				}
+				// {
+				// 	found := false
+				// 	for _, suf := range audioExt {
+				// 		if strings.HasSuffix(strings.ToLower(path), suf) {
+				// 			found = true
+				// 		}
+				// 	}
+				// 	if found {
+				// 		convertAudio(path)
+				// 		return nil
+				// 	}
+				// }
 				return nil
 			})
 			if err != nil {
