@@ -20,6 +20,15 @@ type Config struct {
 	inputFolders []string
 }
 
+var config Config
+
+func init() {
+	config = linux
+	if runtime.GOOS == "windows" {
+		config = windows
+	}
+}
+
 var windows = Config{
 	ffmpegLocation:  "C:\\Users\\e19700019\\Downloads\\ffmpeg\\bin\\ffmpeg.exe",
 	ffprobeLocation: "C:\\Users\\e19700019\\Downloads\\ffmpeg\\bin\\ffprobe.exe",
@@ -35,19 +44,42 @@ var linux = Config{
 		"/cloud/NLP",
 		"/cloud/Learning/",
 		"/media/konstantin/Hdd2/private",
-		"/media/konstantin/Hdd3/music",
 		"/media/konstantin/Hdd3/video",
+		"/media/konstantin/Hdd3/music",
 		"/media/konstantin/Hdd1/learning",
 	},
 }
 
 const (
-	ignoreFile = "ignore"
-	maxWidth   = 720 // Width 1024 x Height 724
+	ignoreFilename = "ignore"
+	maxWidth       = 720 // Width 1024 x Height 724
+	maxBitrate     = 128000
 )
 
-var (
-	ignoreExt = [...]string{
+var ignoreList []string
+
+func ignoreFile(path string) error {
+	if len(ignoreList) == 0 {
+		dat, err := os.ReadFile(ignoreFilename)
+		if err != nil {
+			return err
+		}
+		ignoreList = strings.Split(string(dat), "\n")
+	}
+	found := false
+	for _, suf := range ignoreList {
+		if path == suf {
+			found = true
+		}
+	}
+	if found {
+		return fmt.Errorf("ignored list file")
+	}
+	return nil
+}
+
+func otherFiles(path string) error {
+	var list = [...]string{
 		".doc", ".docx", ".jpg",
 		".txt", ".pdf",
 		".png", ".jpeg", ".odg",
@@ -60,206 +92,124 @@ var (
 		".ccd", ".cue", ".img",
 		".ppt", ".epub", ".ax",
 		".xml", ".odt", ".wma",
-		".fb2", ".ods", "bbs",
-		".vob",
+		".fb2", ".ods", ".bbs",
+		".vob", ".sfv", ".m3u",
 	}
-	videoExt = [...]string{
+	path = strings.ToLower(path)
+	found := false
+	for _, suf := range list {
+		if strings.HasSuffix(path, suf) {
+			found = true
+			break
+		}
+	}
+	if found {
+		return fmt.Errorf("other file")
+	}
+	return nil
+}
+
+func isVideo(path string) error {
+	var list = [...]string{
 		".mp4", ".avi", ".mkv",
 		".mpg", ".divx",
 		".mts", ".wmv",
 	}
-	audioExt = [...]string{
+	path = strings.ToLower(path)
+	found := false
+	for _, suf := range list {
+		if strings.HasSuffix(path, suf) {
+			found = true
+			break
+		}
+	}
+	if found {
+		return nil
+	}
+	return fmt.Errorf("not video file")
+}
+
+func isAudio(path string) error {
+	var list = [...]string{
 		".mp3", ".flac", ".wav",
 	}
-)
-
-func main() {
-	config := linux
-	if runtime.GOOS == "windows" {
-		config = windows
+	path = strings.ToLower(path)
+	found := false
+	for _, suf := range list {
+		if strings.HasSuffix(path, suf) {
+			found = true
+			break
+		}
 	}
+	if found {
+		return nil
+	}
+	return fmt.Errorf("not audio file")
+}
 
-	var ignoreList []string
-	dat, err := os.ReadFile(ignoreFile)
+func ffprobe(path, pr1, pr2 string) (value int, err error) {
+	// ffprobe -v error -show_entries stream=width    -of default=noprint_wrappers=1 input.mp4
+	// ffprobe -v error -show_entries format=bit_rate -of default=noprint_wrappers=1  input.mp3
+	cmd := exec.Command(config.ffprobeLocation,
+		"-v", "error",
+		"-show_entries", fmt.Sprintf("%s=%s", pr1, pr2),
+		"-of", "default=noprint_wrappers=1",
+		path,
+	)
+	out, err := cmd.Output()
 	if err != nil {
-		fmt.Println(">>>>>>>>> cannot read ignore list", err)
-	} else {
-		ignoreList = strings.Split(string(dat), "\n")
+		return
 	}
+	// parse result
+	// width=1280
 
-	// get video files
-	input := make(chan string, 50)
-	go func() {
-		for _, folder := range config.inputFolders {
-			if _, err := os.Stat(folder); err != nil {
-				if os.IsNotExist(err) {
-					// file does not exist
-					continue
-				}
-			}
-			err := filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
-				if info.IsDir() {
-					return nil
-				}
-				{
-					found := false
-					for _, suf := range ignoreList {
-						if path == suf {
-							found = true
-						}
-					}
-					if found {
-						fmt.Printf("1")
-						return nil
-					}
-				}
-				{
-					found := false
-					for _, suf := range ignoreExt {
-						if strings.HasSuffix(strings.ToLower(path), suf) {
-							found = true
-						}
-					}
-					if found {
-						fmt.Printf("2")
-						return nil
-					}
-				}
-				{
-					found := false
-					for _, suf := range videoExt {
-						if strings.HasSuffix(strings.ToLower(path), suf) {
-							found = true
-						}
-					}
-					if found {
-						input <- path
-						return nil
-					}
-				}
-				// {
-				// 	found := false
-				// 	for _, suf := range audioExt {
-				// 		if strings.HasSuffix(strings.ToLower(path), suf) {
-				// 			found = true
-				// 		}
-				// 	}
-				// 	if found {
-				// 		convertAudio(path)
-				// 		return nil
-				// 	}
-				// }
-				return nil
-			})
-			if err != nil {
-				// ignore error
-				fmt.Fprintf(os.Stderr, "Error in inputFolders: %v", err)
-			}
-		}
-		close(input)
-	}()
-
-	var errs []error
-
-	// filter of video size
-	filter := make(chan string, 20)
-	ignoreVideo := make(chan string, 20)
-	const size = 10
-	var wg sync.WaitGroup
-	wg.Add(size)
-	for i := 0; i < size; i++ {
-		go func() {
-			defer wg.Done()
-			for file := range input {
-				// ffprobe -v error -show_entries stream=width,height -of default=noprint_wrappers=1 input.mp4
-				fmt.Printf("[P]")
-				cmd := exec.Command(config.ffprobeLocation,
-					"-v", "error",
-					"-show_entries", "stream=width", // ONLY WIDTH
-					"-of", "default=noprint_wrappers=1",
-					file,
-				)
-				out, err := cmd.Output()
-				if err != nil {
-					errs = append(errs, err)
-					continue
-				}
-				// parse result
-				// width=1280
-				// height=720
-
-				line := strings.TrimSpace(string(out))
-
-				if !strings.Contains(line, "width") {
-					errs = append(errs, fmt.Errorf("have not width: `%s`", string(out)))
-					continue
-				}
-				if index := strings.Index(line, "="); 0 <= index {
-					line = line[index+1:]
-				}
-				if index := strings.Index(line, "\r"); 0 <= index {
-					line = line[:index]
-				}
-				if index := strings.Index(line, "\n"); 0 <= index {
-					line = line[:index]
-				}
-				width, err := strconv.Atoi(strings.TrimSpace(line))
-				if err != nil {
-					errs = append(errs, fmt.Errorf("%v -- %s", err, line))
-					continue
-				}
-				if maxWidth < width {
-					fmt.Printf("add    (%05d): %s\n", width, file)
-					filter <- file
-				} else {
-					fmt.Printf("ignore (%05d): %s\n", width, file)
-					ignoreVideo <- file
-				}
-			}
-		}()
+	line := strings.TrimSpace(string(out))
+	if !strings.Contains(line, pr2) {
+		err = fmt.Errorf("have not %s: `%s`", pr2, string(out))
+		return
 	}
-	go func() {
-		counter := 0
-		for file := range ignoreVideo {
-			ignoreList = append(ignoreList, file)
-			counter++
-			if 10 < counter {
-				counter = 0
-				// save ignore list
-				err := os.WriteFile(
-					ignoreFile,
-					[]byte(strings.Join(ignoreList, "\n")),
-					0644,
-				)
-				if err != nil {
-					fmt.Println("Ignore list cannot be write:", err)
-				}
-			}
-		}
-	}()
+	if index := strings.Index(line, "="); 0 <= index {
+		line = line[index+1:]
+	}
+	if index := strings.Index(line, "\r"); 0 <= index {
+		line = line[:index]
+	}
+	if index := strings.Index(line, "\n"); 0 <= index {
+		line = line[:index]
+	}
+	value, err = strconv.Atoi(strings.TrimSpace(line))
+	return
+}
 
-	go func() {
-		wg.Wait()
-		close(filter)
-		close(ignoreVideo)
-	}()
+func isVideoValid(path string) error {
+	width, err := ffprobe(path, "stream", "width")
+	if err != nil {
+		return err
+	}
+	if width < maxWidth {
+		return fmt.Errorf("ignore (%05d)", width)
+	}
+	return nil
+}
 
-	// compress
-	var fok []string // file is ok
-	for f := range filter {
-		if err := action(config, f); err != nil {
-			errs = append(errs, fmt.Errorf("%v --- %v", f, err))
-			continue
-		}
-		fok = append(fok, f)
+func isAudioValid(path string) error {
+	bitrate, err := ffprobe(path, "format", "bit_rate")
+	if err != nil {
+		return err
 	}
-	for i := range fok {
-		fmt.Println("ok", i, fok[i])
+	if bitrate < maxBitrate {
+		return fmt.Errorf("ignore (%05d)", bitrate)
 	}
-	fmt.Println("---------------------")
-	for i := range errs {
-		fmt.Println(i, errs[i])
+	return nil
+}
+
+func filesize(path string) (int64, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return -1, err
 	}
+	// get the size
+	return fi.Size(), nil
 }
 
 func copy(src, dst string) (err error) {
@@ -273,50 +223,38 @@ func copy(src, dst string) (err error) {
 	return
 }
 
-func action(config Config, f string) (err error) {
-	defer func() {
-		if err != nil {
-			fmt.Println("++++++++++++++++++++")
-			fmt.Printf("Error:\n%s\n%v\n", f, err)
-			fmt.Println("++++++++++++++++++++")
-		}
-	}()
-	filename := struct { // filenames
+func ffmpeg(path string, args ...string) (err error) {
+	// filenames
+	filename := struct {
 		cloudOriginal string
 		cloudCompress string
 
-		// localOriginal string
 		localCompress string
 	}{}
 	// get filename
 	{
-		index := strings.LastIndex(f, string(filepath.Separator))
+		index := strings.LastIndex(path, string(filepath.Separator))
 		if index < 0 {
-			panic(f)
+			panic(path)
 		}
-		filename.cloudOriginal = f[:index]
-		filename.cloudCompress = f[:index]
+		filename.cloudOriginal = path
+		// add folders
+		filename.cloudCompress = path[:index]
 		filename.localCompress = config.copyFolder
-
-		name := f[index:]
-		filename.cloudOriginal += name
-
-		part := name
-		index = strings.LastIndex(part, ".")
+		// add name
+		name := path[index:] // example: "/file.ext", "\file.ext"
+		index = strings.LastIndex(name, ".")
 		if index < 0 {
-			panic(f)
+			panic(path)
 		}
-		name = part[:index] +
-			// compress size suffix
-			fmt.Sprintf("_c%d", maxWidth) +
-			part[index:]
+		// compress size suffix
+		name = name[:index] + "_c" + name[index:]
 		filename.cloudCompress += name
 		filename.localCompress += name
 	}
 	fmt.Println(filename.cloudOriginal)
 	fmt.Println(filename.cloudCompress)
 	fmt.Println(filename.localCompress)
-	fmt.Println("-----------------")
 
 	// remove compress file if exist
 	fmt.Println("rm loc:", filename.cloudCompress)
@@ -326,35 +264,16 @@ func action(config Config, f string) (err error) {
 	} {
 		errLocal := os.Remove(file)
 		if errLocal != nil {
-			fmt.Println("A: acceptable error: ", errLocal)
+			// fmt.Println("A: acceptable error: ", errLocal)
 		}
+		_ = errLocal // ignore
 	}
 
-	// copy to specific folder
-	// 	fmt.Println("copy  :", filename.cloudCompress)
-	// 	{
-	// 		cmd := exec.Command("cp",
-	// 			filename.cloudOriginal,
-	// 		)
-	// 		var out []byte
-	// 		out, err = cmd.Output()
-	// 		if err != nil {
-	// 			err = fmt.Errorf("B: %v", err)
-	// 			return
-	// 		}
-	// 		fmt.Println(string(out))
-	// 	}
-
 	defer func() {
-		fmt.Println("remove:", filename.cloudCompress)
-		for _, file := range []string{
-			filename.localCompress,
-		} {
-			err2 := os.Remove(file)
-			if err2 != nil {
-				err = fmt.Errorf("%v :: %v", err, err2)
-				err = fmt.Errorf("C: %v", err)
-			}
+		fmt.Println("remove")
+		errRem := os.Remove(filename.localCompress)
+		if errRem != nil {
+			fmt.Fprintf(os.Stdout, "%v", errRem)
 		}
 	}()
 
@@ -363,11 +282,12 @@ func action(config Config, f string) (err error) {
 	fmt.Println("ffmpeg:", filename.cloudCompress)
 	{
 		fmt.Printf("[M]")
-		args := []string{
-			"-i", filename.cloudOriginal, // fmt.Sprintf("'%s'", filename.cloudOriginal),
-			"-vf", fmt.Sprintf("scale=%d:-2", maxWidth), // -2 for divisible by 2
-			filename.localCompress, // fmt.Sprintf("'%s'", filename.localCompress),
-		}
+		fmt.Printf("[M]")
+		args = append([]string{
+			"-i", filename.cloudOriginal,
+		}, append(
+			args,
+			filename.localCompress)...) // output file
 		cmd := exec.Command(config.ffmpegLocation, args...)
 		var out []byte
 		out, err = cmd.Output()
@@ -400,19 +320,122 @@ func action(config Config, f string) (err error) {
 		}
 	}
 
-	fmt.Println("--- SUCCESS ---", filename.cloudCompress)
+	// rename
+	fmt.Println("rename:", filename.cloudOriginal)
+	{
+		err = os.Rename(filename.cloudCompress, filename.cloudOriginal)
+		if err != nil {
+			err = fmt.Errorf("R: %v", err)
+			return
+		}
+	}
+
 	return
 }
 
-func convertAudio(filename string) {
-	// TODO: implementation
-	// https://trac.ffmpeg.org/wiki/Encode/MP3
+func convertVideo(path string) (err error) {
+	return ffmpeg(path,
+		"-vf", fmt.Sprintf("scale=%d:-2", maxWidth), // -2 for divisible by 2
+	)
+}
 
-	// ffmpeg -i input.flac -ab 320k -map_metadata 0 -id3v2_version 3 output.mp3
-	// ffmpeg -i {        } -ab 160k -map_metadata 0 -id3v2_version 3 {}.mp3
+func convertAudio(path string) error {
+	return ffmpeg(path,
+		"-ab", fmt.Sprintf("%d", maxBitrate),
+		"-map_metadata", "0",
+		"-id3v2_version", "3",
+	)
+}
 
-	// ffprobe -loglevel quiet -show_entries format=bit_rate ./01.mp3
-	// [FORMAT]
-	// bit_rate=64035
-	// [/FORMAT]
+func main() {
+	// get video files
+	input := make(chan string, 10)
+	go func() {
+		for _, folder := range config.inputFolders {
+			if _, err := os.Stat(folder); err != nil {
+				if os.IsNotExist(err) {
+					// file does not exist
+					continue
+				}
+			}
+			err := filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
+				if info.IsDir() {
+					return nil
+				}
+				input <- path
+				return nil
+			})
+			if err != nil {
+				// ignore error
+				fmt.Fprintf(os.Stderr, "Error in inputFolders: %v", err)
+			}
+		}
+		close(input)
+	}()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for path := range input {
+				valid := true
+				for _, f := range []func(string) error{
+					ignoreFile,
+					otherFiles,
+				} {
+					err := f(path)
+					if err != nil {
+						valid = false
+						fmt.Fprintf(os.Stdout, "[1]")
+						break
+					}
+				}
+				if !valid {
+					continue
+				}
+				// parse
+				var fs []func(string) error
+				switch {
+				case isVideo(path) == nil:
+					fs = []func(string) error{
+						isVideoValid,
+						convertVideo,
+					}
+				case isAudio(path) == nil:
+					fs = []func(string) error{
+						isAudioValid,
+						convertAudio,
+					}
+				}
+				ok := true
+
+				before, _ := filesize(path)
+				for _, f := range fs { // TODO save filename
+					err := f(path)
+					if err != nil {
+						fmt.Fprintf(os.Stdout, "%s:%v\n", path, err)
+						ok = false
+						break
+					}
+				}
+				after, _ := filesize(path)
+				if 0 < len(fs) && ok {
+					fmt.Fprintf(os.Stdout, "%s:SUCCESS:%d:%d:%.5f\n", path, before, after, float64(before)/float64(after))
+					fmt.Println("-----------------")
+					ignoreList = append(ignoreList, path)
+
+					err := os.WriteFile(
+						ignoreFilename,
+						[]byte(strings.Join(ignoreList, "\n")),
+						0644,
+					)
+					if err != nil {
+						fmt.Println("Ignore list cannot be write:", err)
+					}
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
