@@ -41,6 +41,7 @@ var linux = Config{
 	ffprobeLocation: "ffprobe",
 	copyFolder:      "/home/konstantin/temp",
 	inputFolders: []string{
+		"/cloud/Music",
 		"/cloud/NLP",
 		"/cloud/Learning/",
 		"/media/konstantin/Hdd2/private",
