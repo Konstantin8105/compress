@@ -202,7 +202,7 @@ func isAudioValid(path string) error {
 	if err != nil {
 		return err
 	}
-	if bitrate < maxBitrate {
+	if bitrate < int(float64(maxBitrate)*1.1) { // add addition coefficient
 		return fmt.Errorf("ignore (%05d)", bitrate)
 	}
 	return nil
