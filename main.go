@@ -391,7 +391,7 @@ func main() {
 					err := f(path)
 					if err != nil {
 						valid = false
-						fmt.Fprintf(os.Stdout, "[1]")
+						fmt.Fprintf(os.Stdout, ".")
 						break
 					}
 				}
