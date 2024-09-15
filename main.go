@@ -33,7 +33,11 @@ var windows = Config{
 	ffmpegLocation:  "C:\\Users\\e19700019\\Downloads\\ffmpeg\\bin\\ffmpeg.exe",
 	ffprobeLocation: "C:\\Users\\e19700019\\Downloads\\ffmpeg\\bin\\ffprobe.exe",
 	copyFolder:      "Z:",
-	inputFolders:    []string{"O:\\NLP\\", "O:\\Learning\\"},
+	inputFolders: []string{
+		"O:\\NLP\\",
+		"O:\\Learning\\",
+		"O:\\Music\\",
+	},
 }
 
 var linux = Config{
