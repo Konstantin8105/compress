@@ -275,7 +275,7 @@ func ffmpeg(path string, args ...string) (err error) {
 	}
 
 	defer func() {
-		fmt.Println("remove")
+		fmt.Println("remove :", filename.localCompress)
 		errRem := os.Remove(filename.localCompress)
 		if errRem != nil {
 			fmt.Fprintf(os.Stdout, "%v", errRem)
@@ -286,7 +286,6 @@ func ffmpeg(path string, args ...string) (err error) {
 	// ffmpeg.exe -i input.mp4 -vf scale=640:-1 out.mp4
 	fmt.Println("ffmpeg:", filename.cloudCompress)
 	{
-		fmt.Printf("[M]")
 		fmt.Printf("[M]")
 		args = append([]string{
 			"-i", filename.cloudOriginal,
@@ -314,7 +313,7 @@ func ffmpeg(path string, args ...string) (err error) {
 	}
 
 	// remove original
-	fmt.Println("remove:", filename.cloudCompress)
+	fmt.Println("remove:", filename.cloudOriginal)
 	for _, file := range []string{
 		filename.cloudOriginal,
 	} {
