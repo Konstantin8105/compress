@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/mmcloughlin/profile"
 )
 
 type Config struct {
@@ -136,7 +139,9 @@ func isVideo(path string) error {
 
 func isAudio(path string) error {
 	var list = [...]string{
-		".mp3", ".flac", ".wav",
+		".mp3",
+		".flac",
+		".wav",
 	}
 	path = strings.ToLower(path)
 	found := false
@@ -352,8 +357,30 @@ func convertAudio(path string) error {
 }
 
 func main() {
+	// Setup profiler
+	p := profile.New(
+		profile.CPUProfile,
+		profile.MemProfile,
+		profile.TraceProfile,
+	)
+	p.SetFlags(flag.CommandLine)
+	// parse cli flags
+	flag.Parse()
+	// Start profiler
+	{
+		// c := make(chan os.Signal)
+		// signal.Notify(c, os.Interrupt)
+		// go func() {
+		// 	<-c
+		// 	p.Start().Stop()
+		// 	os.Exit(0)
+		// }()
+		defer func() {
+			p.Start().Stop()
+		}()
+	}
 	// get video files
-	input := make(chan string, 10)
+	input := make(chan string, 5)
 	go func() {
 		for _, folder := range config.inputFolders {
 			if _, err := os.Stat(folder); err != nil {
@@ -378,7 +405,9 @@ func main() {
 	}()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	const size = 5
+	store := make(chan string, 50)
+	for i := 0; i < size; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -396,6 +425,7 @@ func main() {
 					}
 				}
 				if !valid {
+					fmt.Fprintf(os.Stdout, "*")
 					continue
 				}
 				// parse
@@ -411,14 +441,16 @@ func main() {
 						isAudioValid,
 						convertAudio,
 					}
+				default:
+					fmt.Fprintf(os.Stdout, "_")
 				}
 				ok := true
-
 				before, _ := filesize(path)
-				for _, f := range fs { // TODO save filename
+				for ip, f := range fs { // TODO save filename
+					fmt.Fprintf(os.Stdout, "&%d", ip)
 					err := f(path)
 					if err != nil {
-						fmt.Fprintf(os.Stdout, "%s:%v\n", path, err)
+						fmt.Fprintf(os.Stdout, "\n%s:%v\n", path, err)
 						ok = false
 						break
 					}
@@ -427,19 +459,30 @@ func main() {
 				if 0 < len(fs) && ok {
 					fmt.Fprintf(os.Stdout, "%s:SUCCESS:%d:%d:%.5f\n", path, before, after, float64(before)/float64(after))
 					fmt.Println("-----------------")
-					ignoreList = append(ignoreList, path)
-
-					err := os.WriteFile(
-						ignoreFilename,
-						[]byte(strings.Join(ignoreList, "\n")),
-						0644,
-					)
-					if err != nil {
-						fmt.Println("Ignore list cannot be write:", err)
-					}
+					store <- path
 				}
 			}
 		}()
 	}
+
+	go func() {
+		counter := 0
+		for path := range store {
+			ignoreList = append(ignoreList, path)
+			counter++
+			if counter%10 != 0 {
+				continue
+			}
+			err := os.WriteFile(
+				ignoreFilename,
+				[]byte(strings.Join(ignoreList, "\n")),
+				0644,
+			)
+			if err != nil {
+				fmt.Println("Ignore list cannot be write:", err)
+			}
+		}
+	}()
 	wg.Wait()
+	close(store)
 }
